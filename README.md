@@ -231,27 +231,44 @@ Faites preuve de pédagogie et soyez clair dans vos explications et procedures d
 **Exercice 1 :**  
 Quels sont les composants dont la perte entraîne une perte de données ?  
   
-*..Répondez à cet exercice ici..*
+**Réponse :**
+La perte définitive de données survient si nous perdons **simultanément les deux Persistent Volumes (PV)** associés aux PVC `pra-data` (la production) et `pra-backup` (les sauvegardes). 
+Ici, nous tournons sur un cluster local K3d avec des volumes locaux montés sur le nœud. On a mis nos "œufs dans le même panier" physique : la perte physique de la machine hôte ou la suppression accidentelle du cluster entier (le Codespace) entraînera la perte des deux volumes en même temps, ce qui représente un Single Point of Failure (SPOF).
+De plus, la perte seule du PVC `pra-data` entraîne une perte de données partielle (les requêtes traitées depuis la dernière exécution du CronJob, soit maximum 1 minute).
 
 **Exercice 2 :**  
 Expliquez nous pourquoi nous n'avons pas perdu les données lors de la supression du PVC pra-data  
   
-*..Répondez à cet exercice ici..*
+**Réponse :**
+Nous n'avons pas perdu nos données car notre architecture sépare le stockage de production (`pra-data`) de l'espace de sauvegarde (`pra-backup`). 
+Techniquement, les données "live" ont bien été détruites lors de la suppression du PVC ! Cependant, grâce au CronJob Kubernetes (`sqlite-backup`), un snapshot de notre base de données SQLite est copié chaque minute vers le PVC de backup. 
+Lors de la relance du déploiement sur un nouveau PVC vierge, l'exécution manuelle du Job de restauration (`50-job-restore.yaml`) nous a permis de récupérer le fichier `.db` le plus récent depuis l'espace de backup pour repeupler notre base de production.
 
 **Exercice 3 :**  
 Quels sont les RTO et RPO de cette solution ?  
   
-*..Répondez à cet exercice ici..*
+**Réponse :**
+* **RPO (Recovery Point Objective)** : Il est de **1 minute**. C'est notre tolérance à la perte de données maximum. Notre CronJob étant configuré avec l'expression `*/1 * * * *`, l'écart maximum entre le crash et la dernière sauvegarde est de 60 secondes. C'est la quantité maximale de données que nous pouvons perdre.
+* **RTO (Recovery Time Objective)** : Il dépend de notre réactivité humaine. Le temps de ramener l'app à la vie n'étant pas automatisé en cas de perte du volume, le RTO correspond au temps nécessaire pour détecter l'incident, recréer le déploiement/PVC, et appliquer le job de restauration. Dans le cadre de cet atelier, le RTO est estimé à **quelques minutes** (~2 à 5 minutes selon le délai d'action de l'administrateur).
 
 **Exercice 4 :**  
 Pourquoi cette solution (cet atelier) ne peux pas être utilisé dans un vrai environnement de production ? Que manque-t-il ?   
   
-*..Répondez à cet exercice ici..*
+**Réponse :**
+Cette architecture est excellente à des fins pédagogiques mais ne respecte pas les standards de production pour plusieurs raisons :
+1. **La règle de sauvegarde "3-2-1" n'est pas respectée (Backups non excentrés)** : Nos sauvegardes résident dans le même cluster K8s que la production. En cas de perte du cluster ou du nœud de stockage physique (si le serveur brûle), production et sauvegardes sont perdues simultanément.
+2. **Base de données inadaptée (Limites de SQLite)** : SQLite verrouille le fichier lors des écritures. Si nous passions notre déploiement à `replicas: 3` pour encaisser la charge et faire du PCA, les pods ne pourraient pas écrire concurremment de façon fiable sur un même PVC partagé.
+3. **Le mode d'accès ReadWriteOnce (RWO)** : Le volume ne peut être monté que par un seul nœud à la fois, ce qui bloque la haute disponibilité multi-nœuds en cas de bascule d'un pod.
+4. **Automatisation incomplète** : Le processus de restauration ("runbook") nécessite notre intervention manuelle via `kubectl apply`. Il manquerait une automatisation poussée (opérateur K8s) pour garantir la résilience et soulager le RTO.
   
 **Exercice 5 :**  
 Proposez une archtecture plus robuste.   
   
-*..Répondez à cet exercice ici..*
+**Réponse :**
+Pour une véritable robustesse "Enterprise-grade", voici l'architecture cible que je propose :
+* **PCA orienté Data via l'externalisation de la BDD (DBaaS)** : Remplacer SQLite par une base de données managée externe (ex: PostgreSQL sur AWS RDS ou GCP Cloud SQL) avec réplication Multi-AZ pour une haute disponibilité "Native". Kubernetes se charge du "Stateless" (les pods Flask), le cloud provider sécurise le "Stateful" (bascule RPO=0 / RTO minime).
+* **PRA orienté Disaster Recovery via l'externalisation des Backups** : Utiliser un outil cloud-native comme **Velero** pour sauvegarder non seulement les données chiffrées (dumps incrémentaux) mais aussi les manifestes K8s (Deployments, Services, ConfigMaps) vers un stockage objet immuable (ex: bucket S3 AWS) situé dans une région géographique différente.
+* **Haute Disponibilité** : Déployer les pods Flask derrière un Ingress Controller avec un HPA (Horizontal Pod Autoscaler) et des règles d'anti-affinité pour s'assurer que les pods tournent sur des nœuds différents. Le tout orchestré par du full IaC pour être réinstancié au clic sur n'importe quel autre cluster de secours.
 
 ---------------------------------------------------
 Séquence 6 : Ateliers  
