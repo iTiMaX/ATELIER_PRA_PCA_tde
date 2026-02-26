@@ -280,7 +280,12 @@ Difficulté : Moyenne (~2 heures)
 * last_backup_file : nom du dernier backup présent dans /backup
 * backup_age_seconds : âge du dernier backup
 
-*..**Déposez ici une copie d'écran** de votre réussite..*
+**Réalisation :**
+Pour implémenter cette fonctionnalité, deux modifications ont été nécessaires :
+1. **Dans le code de l'application (`app/app.py`)** : Ajout d'une nouvelle route `@app.get("/status")`. Cette route interroge SQLite pour obtenir le `count`, puis liste les fichiers dans le dossier `/backup`. Elle récupère le fichier le plus récent (`last_backup_file`), lit sa date de modification avec `os.path.getmtime()` et calcule la différence avec l'heure actuelle pour fournir `backup_age_seconds`.
+2. **Dans le manifeste Kubernetes (`k8s/20-deployment.yaml`)** : Le pod `flask` avait seulement accès au volume `pra-data`. Il a fallu lui ajouter le `volumeMount` sur `/backup` relié au PersistentVolumeClaim `pra-backup` afin que l'application puisse consulter les sauvegardes générées par le CronJob.
+
+![Screenshot Atelier 1](atelier1.png)  
 
 ---------------------------------------------------
 ### **Atelier 2 : Choisir notre point de restauration**  
