@@ -291,7 +291,40 @@ Pour implémenter cette fonctionnalité, deux modifications ont été nécessair
 ### **Atelier 2 : Choisir notre point de restauration**  
 Aujourd’hui nous restaurobs “le dernier backup”. Nous souhaitons **ajouter la capacité de choisir un point de restauration**.
 
-*..Décrir ici votre procédure de restauration (votre runbook)..*  
+**Procédure de restauration ciblée (Runbook) :**
+
+Actuellement, le fichier `pra/50-job-restore.yaml` contient la commande suivante qui sélectionne automatiquement le fichier le plus récent :
+```bash
+LATEST=$(ls -t /backup/*.db | head -1)
+cp $LATEST /data/app.db
+```
+
+Pour choisir notre propre point de restauration, voici le runbook étape par étape :
+
+1. **Identifier le backup souhaité :**
+   Grâce à la route `/status` ou en lançant un pod de debug (Sequence 3), nous listons les fichiers disponibles dans le PVC `pra-backup`. On note le nom exact du fichier, par exemple `app-1772114761.db`.
+
+2. **Éditer le Job de restauration :**
+   Nous ouvrons le fichier `pra/50-job-restore.yaml` et nous remplaçons les deux lignes de la commande `args` par la copie explicite du fichier choisi :
+   ```yaml
+   args:
+     - |
+       cp /backup/app-1772114761.db /data/app.db
+   ```
+   *(Alternative : On pourrait aussi passer le nom du fichier via une variable d'environnement `TARGET_BACKUP` dans le manifest du Job).*
+
+3. **Lancer la restauration ciblée :**
+   Comme pour le PRA classique, on s'assure que le déploiement Flask est à 0 replica, puis on lance notre job modifié :
+   ```bash
+   kubectl apply -f pra/50-job-restore.yaml
+   ```
+
+4. **Vérification et relance :**
+   Une fois le statut du job à `Completed`, on relance l'application :
+   ```bash
+   kubectl -n pra scale deployment flask --replicas=1
+   ```
+   L'application redémarre alors avec les données exactes du point dans le temps (PITR - Point In Time Recovery) que nous avions choisi.
   
 ---------------------------------------------------
 Evaluation
